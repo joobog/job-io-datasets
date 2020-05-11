@@ -16,9 +16,9 @@ impl Combination {
         }
     }
 
-    pub fn get_combination(&self) -> Vec<u8> {
-        self.combi.clone()
-    }
+    //pub fn get_combination(&self) -> Vec<u8> {
+    //    self.combi.clone()
+    //}
 
     pub fn to_indices_attached(&self) -> Vec<usize> {
         let mut indices: Vec<usize> = Vec::new();
@@ -129,7 +129,7 @@ impl Iterator for PhaseCombinations {
 
 #[cfg(test)]
 mod tests {
-    use assert_approx_eq::assert_approx_eq;
+    //use assert_approx_eq::assert_approx_eq;
     use super::*;
 
     #[test]
@@ -163,44 +163,44 @@ mod tests {
         assert_eq!(None, shift(&vec![1, 1, 1, 0, 0, 0]));
     }
 
-    #[test]
-    fn test_iterator() {
-        let mut pcs_iter = PhaseCombinations::new(3, 6).into_iter();
-            assert_eq!(vec![0, 0, 0, 1, 1, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 0, 1, 0, 1, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 1, 0, 0, 1, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 0, 0, 0, 1, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 0, 1, 1, 0, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 1, 0, 1, 0, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 0, 0, 1, 0, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 1, 1, 0, 0, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 0, 1, 0, 0, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 1, 0, 0, 0, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 0, 1, 1, 1, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 1, 0, 1, 1, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 0, 0, 1, 1, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 1, 1, 0, 1, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 0, 1, 0, 1, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 1, 0, 0, 1, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![0, 1, 1, 1, 0, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 0, 1, 1, 0, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 1, 0, 1, 0, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(vec![1, 1, 1, 0, 0, 0], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(None, pcs_iter.next());
-    }
+    //#[test]
+    //fn test_iterator() {
+    //    let mut pcs_iter = PhaseCombinations::new(3, 6).into_iter();
+    //        assert_eq!(vec![0, 0, 0, 1, 1, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 0, 1, 0, 1, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 1, 0, 0, 1, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 0, 0, 0, 1, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 0, 1, 1, 0, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 1, 0, 1, 0, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 0, 0, 1, 0, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 1, 1, 0, 0, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 0, 1, 0, 0, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 1, 0, 0, 0, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 0, 1, 1, 1, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 1, 0, 1, 1, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 0, 0, 1, 1, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 1, 1, 0, 1, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 0, 1, 0, 1, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 1, 0, 0, 1, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![0, 1, 1, 1, 0, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 0, 1, 1, 0, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 1, 0, 1, 0, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(vec![1, 1, 1, 0, 0, 0], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(None, pcs_iter.next());
+    //}
 
 
-    #[test]
-    fn test_iterator_edge_cases() {
-        let mut pcs_iter = PhaseCombinations::new(0, 0).into_iter();
-            let empty: Vec<u8> = vec![];
-            assert_eq!(empty, pcs_iter.next().unwrap().get_combination());
-            assert_eq!(None, pcs_iter.next());
-        let mut pcs_iter = PhaseCombinations::new(1, 1).into_iter();
-            assert_eq!(vec![1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(None, pcs_iter.next());
-        let mut pcs_iter = PhaseCombinations::new(2, 2).into_iter();
-            assert_eq!(vec![1, 1], pcs_iter.next().unwrap().get_combination());
-            assert_eq!(None, pcs_iter.next());
-    }
+    //#[test]
+    //fn test_iterator_edge_cases() {
+    //    let mut pcs_iter = PhaseCombinations::new(0, 0).into_iter();
+    //        let empty: Vec<u8> = vec![];
+    //        assert_eq!(empty, pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(None, pcs_iter.next());
+    //    let mut pcs_iter = PhaseCombinations::new(1, 1).into_iter();
+    //        assert_eq!(vec![1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(None, pcs_iter.next());
+    //    let mut pcs_iter = PhaseCombinations::new(2, 2).into_iter();
+    //        assert_eq!(vec![1, 1], pcs_iter.next().unwrap().get_combination());
+    //        assert_eq!(None, pcs_iter.next());
+    //}
 }

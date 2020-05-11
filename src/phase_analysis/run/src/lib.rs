@@ -4,8 +4,9 @@ extern crate chrono;
 extern crate threadpool;
 
 use algorithm;
-use algorithm2;
-use std::sync::mpsc::channel;
+//use algorithm2;
+//use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::error::Error;
 use std::fs::File;
@@ -17,7 +18,7 @@ pub struct Config {
     pub dataset_fn: String,
     pub output_fn: String,
     pub nrows: usize,
-    pub batch_size: usize,
+    //pub batch_size: usize,
     pub min_similarity: algorithm::SimType,
     pub n_workers: usize,
 }
@@ -53,8 +54,10 @@ pub fn convert_to_coding(coding: String) -> Vec<u16> {
 pub struct OutputRow {
     pub jobid_1: u32,
     pub jobid_2: u32,
-    pub num_phases_1: u8,
-    pub num_phases_2: u8,
+    //pub num_phases_1: u8,
+    //pub num_phases_2: u8,
+    pub len_1: u8,
+    pub len_2: u8,
     pub sim_abs: algorithm::SimType,
     pub sim_abs_aggzeros: algorithm::SimType,
     pub sim_hex: algorithm::SimType,
@@ -67,7 +70,8 @@ struct IsolatedPhases {
     coding_abs: Vec<u16>, 
     coding_abs_aggzeros: Vec<u16>, 
     coding_hex: Vec<Vec<u16>>,
-    phases: Vec<Vec<u16>>,
+    phases: Vec<Vec<Vec<u16>>>,
+    len: u8,
 }
 
 
@@ -92,15 +96,18 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 			convert_to_coding(record.read_calls),
 			convert_to_coding(record.write_bytes),
 			convert_to_coding(record.write_calls),];
+        let coding_length = coding_hex[0].len();
 
-        let phases = algorithm::detect_phases(&coding_abs);
-        if phases.len() > 0 {
+        let phases = algorithm::detect_phases_2d(&coding_hex);
+        //if phases.len() > 0 {
+        if coding_abs_aggzeros.iter().sum::<u16>() > 0 {
             phases_set.push(IsolatedPhases{
                 jobid: record.jobid, 
                 coding_abs: coding_abs,
                 coding_abs_aggzeros: coding_abs_aggzeros,
                 coding_hex: coding_hex,
                 phases: phases,
+                len: (coding_length as u8),
             });
         }
     }
@@ -113,84 +120,82 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
     let mut counter = 0;
     let pool = ThreadPool::new(cfg.n_workers);
-    let (tx, rx) = channel();
+    let channel_buf_size = 1000;
+    let (tx, rx) = sync_channel(channel_buf_size);
 
 
     //let file = File::create(&cfg.output_fn).expect("Unable to open");
     //let wtr = Arc::new(Mutex::new(csv::Writer::from_writer(file)));
 
-    for p1 in phases_set1.iter().take(cfg.nrows) {
-       counter += 1;
+    let n_jobs = std::cmp::min(phases_set.len(), cfg.nrows);
+
+
+    for p1 in phases_set1.iter().take(n_jobs) {
        let tx_clone = tx.clone();
-       let nrows = cfg.nrows;
+       //let nrows = cfg.nrows;
        let p1_clone = p1.clone();
        let phases_set2_clone = phases_set2.clone();
-       //let min_similarity = cfg.min_similarity;
+       let min_similarity = cfg.min_similarity;
        //let wtr = wtr.clone();
-
 
        pool.execute( move || {
            let mut rows: Vec<OutputRow> = Vec::new();
-           for p2 in phases_set2_clone.iter().take(nrows).skip(counter) {
-               let row = OutputRow{
-                   jobid_1: p1_clone.jobid, 
-                   jobid_2: p2.jobid,  
-                   num_phases_1: p1_clone.phases.len() as u8, 
-                   num_phases_2: p2.phases.len() as u8,
-                   sim_abs: algorithm2::compute_similarity_1d(&p1_clone.coding_abs, &p2.coding_abs),
-                   sim_abs_aggzeros: algorithm2::compute_similarity_1d(&p1_clone.coding_abs_aggzeros, &p2.coding_abs_aggzeros),
-                   sim_hex: algorithm2::compute_similarity_2d(&p1_clone.coding_hex, &p2.coding_hex),
-                   sim_phases: algorithm::job_similarity(&p1_clone.phases, &p2.phases),
-                   //sim_abs: 0.0,
-                   //sim_abs_aggzeros: 0.0,
-                   //sim_hex: 0.0,
-                   //sim_phases: 0.0,
-               };
-               rows.push(row);
+           for p2 in phases_set2_clone.iter().take(n_jobs).skip(counter) {
+
+               let mut sim_abs = algorithm2::compute_similarity_1d(&p1_clone.coding_abs, &p2.coding_abs);
+               let mut sim_abs_aggzeros = algorithm2::compute_similarity_1d(&p1_clone.coding_abs_aggzeros, &p2.coding_abs_aggzeros);
+               let mut sim_hex = algorithm2::compute_similarity_2d(&p1_clone.coding_hex, &p2.coding_hex);
+               let mut sim_phases=  algorithm::job_similarity_2d(&p1_clone.phases, &p2.phases);
+
+               if sim_abs < min_similarity {sim_abs = std::f32::NAN;}
+               if sim_abs_aggzeros < min_similarity {sim_abs_aggzeros = std::f32::NAN;};
+               if sim_hex < min_similarity {sim_hex = std::f32::NAN;}
+               if sim_phases < min_similarity {sim_phases = std::f32::NAN;}
+
+               if (sim_abs >= min_similarity) | (sim_abs_aggzeros >= min_similarity) | (sim_hex >= min_similarity) | (sim_phases >= min_similarity) {
+                   let row = OutputRow {
+                       jobid_1: p1_clone.jobid, 
+                       jobid_2: p2.jobid,  
+                       len_1: p1_clone.len,
+                       len_2: p2.len,
+                       sim_abs: sim_abs,
+                       sim_abs_aggzeros: sim_abs_aggzeros, 
+                       sim_hex: sim_hex, 
+                       sim_phases: sim_phases, 
+                   };
+                   rows.push(row);
+               }
            }
            tx_clone.send(rows).unwrap(); 
-       })
+       });
+       counter += 1;
     }
-
-
-    let phases_set_len = std::cmp::min(phases_set.len(), cfg.nrows);
-    let n_jobs = phases_set_len;
-    let n_batches = n_jobs / cfg.batch_size;
-    let final_batch_size = n_jobs % cfg.batch_size;
-    let mut batch_sizes: Vec<usize> = vec![cfg.batch_size; n_batches];
-    batch_sizes.push(final_batch_size);
-    println!("{:?}, len {}", (batch_sizes.len()-1)*cfg.batch_size + final_batch_size, batch_sizes.len());
 
    
     let file = File::create(&cfg.output_fn).expect("Unable to open");
     let mut wtr = csv::Writer::from_writer(&file);
 
     let start = chrono::Utc::now();
-    for (batch_counter, current_batch_size) in batch_sizes.iter().enumerate() {
-       let start = chrono::Utc::now();
-       for rows in rx.iter().take(*current_batch_size) {
-           for row in rows {
-               if 
-               (row.sim_abs >= cfg.min_similarity) |
-               (row.sim_abs_aggzeros >= cfg.min_similarity) |
-               //(row.sim_hex >= cfg.min_similarity) |
-               (row.sim_phases >= cfg.min_similarity)
-               {
-                   wtr.serialize(row)?;
-               }
-           }
-           //wtr.flush()?;
-       }
-       let stop = chrono::Utc::now();
-       println!("BATCH {}/{} ({:.3}%),BATCHSIZE {} RECEIVED {} rows in {:.3} seconds", 
-                batch_counter, 
-                batch_sizes.len(), 
-                (batch_counter as f32) / (batch_sizes.len() as f32) * 100.0, 
-                current_batch_size, n_jobs, ((stop - start).num_milliseconds() as f64)/(1000 as f64));
-    }
-    let stop = chrono::Utc::now();
-    println!("Duration {}", ((stop - start).num_milliseconds() as f64) / (1000 as f64));
+    //let mut batch_counter = 0;
 
+    let mut rx_iter = rx.iter();
+    for i in 0..n_jobs {
+        let rows = rx_iter.next().unwrap();
+        for row in rows {
+            wtr.serialize(row)?;
+        }
+        println!("batch {}/{} ({:.3}%)", 
+                 i, 
+                 n_jobs, 
+                 ((100 * i) as f32) / (n_jobs as f32)
+                );
+    }
+
+    let stop = chrono::Utc::now();
+    println!("Flushing data.");
+    wtr.flush()?;
+
+    println!("Duration {}", ((stop - start).num_milliseconds() as f64) / (1000 as f64));
     Ok(())
 }
 
