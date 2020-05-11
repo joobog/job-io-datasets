@@ -1,6 +1,6 @@
 extern crate generic_levenshtein;
 
-pub type CodingType = u16;
+pub type CodingType = u32;
 pub type SimType = f32;
 
 

@@ -2,6 +2,7 @@ extern crate csv;
 extern crate serde;
 extern crate chrono;
 extern crate threadpool;
+extern crate ordered_float;
 
 use algorithm;
 //use algorithm2;
@@ -13,13 +14,13 @@ use std::fs::File;
 use serde::Deserialize;
 use serde::Serialize;
 use threadpool::ThreadPool;
+use std::collections::HashMap;
+use ordered_float::OrderedFloat;
 
 pub struct Config {
     pub dataset_fn: String,
     pub output_fn: String,
     pub nrows: usize,
-    //pub batch_size: usize,
-    pub min_similarity: algorithm::SimType,
     pub n_workers: usize,
 }
 
@@ -41,37 +42,79 @@ pub struct Record {
 }
 
 
-pub fn convert_to_coding(coding: String) -> Vec<u16> {
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize)]
+pub enum ALG {
+    Phases,
+    Abs,
+    AbsAggzeros,
+    Hex,
+}
+
+
+#[derive(Debug, Clone)]
+struct IsolatedPhases {
+    jobid: u32,
+    coding_abs: Vec<u32>, 
+    coding_abs_aggzeros: Vec<u32>, 
+    coding_hex: Vec<Vec<u32>>,
+    phases: Vec<Vec<Vec<u32>>>,
+    len: u8,
+}
+
+
+#[derive(Debug)]
+pub struct JobComparison {
+    pub jobid_1: u32,
+    pub jobid_2: u32,
+    pub alg_type: ALG,
+    pub sim: f32,
+    pub threshold_sim: OrderedFloat<f32>,
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct OutputRow {
+    pub jobid: u32,
+    pub cluster: u32,
+    pub alg_type: u32,
+    pub sim: f32,
+    pub threshold_sim: f32,
+}
+
+
+pub struct Summary {
+    pub cluster: u32,
+    pub sim: f32,
+}
+
+
+pub fn convert_to_coding(coding: String) -> Vec<u32> {
     let split = coding.split(":");
-    let vec: Vec<u16> = split
+    let vec: Vec<u32> = split
         .filter(|s| !s.is_empty())
         .map(|s| s.parse().unwrap()) 
         .collect();
     vec
 }
 
-#[derive(Debug, Serialize)]
-pub struct OutputRow {
-    pub jobid_1: u32,
-    pub jobid_2: u32,
-    //pub num_phases_1: u8,
-    //pub num_phases_2: u8,
-    pub len_1: u8,
-    pub len_2: u8,
-    pub sim_abs: algorithm::SimType,
-    pub sim_abs_aggzeros: algorithm::SimType,
-    pub sim_hex: algorithm::SimType,
-    pub sim_phases: algorithm::SimType,
-}
 
-#[derive(Debug, Clone)]
-struct IsolatedPhases {
-    jobid: u32,
-    coding_abs: Vec<u16>, 
-    coding_abs_aggzeros: Vec<u16>, 
-    coding_hex: Vec<Vec<u16>>,
-    phases: Vec<Vec<Vec<u16>>>,
-    len: u8,
+pub fn convert_to_output_rows(input: HashMap<u32, HashMap<ALG, HashMap<OrderedFloat<f32>, Summary>>>, alg_map: &HashMap<ALG, u32>) -> Vec<OutputRow> {
+    let mut output: Vec<OutputRow> = Vec::new();
+    for (jobid, alg_hashmap) in input {
+        for (alg, threshold_hashmap) in alg_hashmap {
+            for (threshold, summary) in threshold_hashmap {
+                output.push(
+                    OutputRow {
+                        jobid,
+                        cluster: summary.cluster,
+                        alg_type: alg_map[&alg],
+                        sim: summary.sim,
+                        threshold_sim: threshold.into_inner(),
+                    });
+            }
+        }
+    }
+    output
 }
 
 
@@ -100,7 +143,7 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
         let phases = algorithm::detect_phases_2d(&coding_hex);
         //if phases.len() > 0 {
-        if coding_abs_aggzeros.iter().sum::<u16>() > 0 {
+        if coding_abs_aggzeros.iter().sum::<u32>() > 0 {
             phases_set.push(IsolatedPhases{
                 jobid: record.jobid, 
                 coding_abs: coding_abs,
@@ -120,82 +163,144 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
     let mut counter = 0;
     let pool = ThreadPool::new(cfg.n_workers);
-    let channel_buf_size = 1000;
+    let channel_buf_size = 100;
     let (tx, rx) = sync_channel(channel_buf_size);
-
-
-    //let file = File::create(&cfg.output_fn).expect("Unable to open");
-    //let wtr = Arc::new(Mutex::new(csv::Writer::from_writer(file)));
-
     let n_jobs = std::cmp::min(phases_set.len(), cfg.nrows);
 
 
     for p1 in phases_set1.iter().take(n_jobs) {
-       let tx_clone = tx.clone();
-       //let nrows = cfg.nrows;
-       let p1_clone = p1.clone();
-       let phases_set2_clone = phases_set2.clone();
-       let min_similarity = cfg.min_similarity;
-       //let wtr = wtr.clone();
+        let tx_clone = tx.clone();
+        let p1_clone = p1.clone();
+        let phases_set2_clone = phases_set2.clone();
 
-       pool.execute( move || {
-           let mut rows: Vec<OutputRow> = Vec::new();
-           for p2 in phases_set2_clone.iter().take(n_jobs).skip(counter) {
+        let threshold_sims: Vec<OrderedFloat<f32>> = vec![
+            OrderedFloat(0.5), 
+            OrderedFloat(0.7),
+            OrderedFloat(0.9),
+            OrderedFloat(0.95),
+            OrderedFloat(0.99),
+        ];
 
-               let mut sim_abs = algorithm2::compute_similarity_1d(&p1_clone.coding_abs, &p2.coding_abs);
-               let mut sim_abs_aggzeros = algorithm2::compute_similarity_1d(&p1_clone.coding_abs_aggzeros, &p2.coding_abs_aggzeros);
-               let mut sim_hex = algorithm2::compute_similarity_2d(&p1_clone.coding_hex, &p2.coding_hex);
-               let mut sim_phases=  algorithm::job_similarity_2d(&p1_clone.phases, &p2.phases);
+        pool.execute( move || {
+            let mut rows: Vec<JobComparison> = Vec::new();
+            for p2 in phases_set2_clone.iter().take(n_jobs).skip(counter) {
+                let sim_abs = algorithm2::compute_similarity_1d(&p1_clone.coding_abs, &p2.coding_abs);
+                let sim_abs_aggzeros = algorithm2::compute_similarity_1d(&p1_clone.coding_abs_aggzeros, &p2.coding_abs_aggzeros);
+                let sim_hex = algorithm2::compute_similarity_2d(&p1_clone.coding_hex, &p2.coding_hex);
+                let sim_phases = algorithm::job_similarity_2d(&p1_clone.phases, &p2.phases);
+                //let sim_abs = 0.0;
+                //let sim_abs_aggzeros = 0.0; 
+                //let sim_hex = 0.0; 
+                //let sim_phases = 0.0;
 
-               if sim_abs < min_similarity {sim_abs = std::f32::NAN;}
-               if sim_abs_aggzeros < min_similarity {sim_abs_aggzeros = std::f32::NAN;};
-               if sim_hex < min_similarity {sim_hex = std::f32::NAN;}
-               if sim_phases < min_similarity {sim_phases = std::f32::NAN;}
-
-               if (sim_abs >= min_similarity) | (sim_abs_aggzeros >= min_similarity) | (sim_hex >= min_similarity) | (sim_phases >= min_similarity) {
-                   let row = OutputRow {
-                       jobid_1: p1_clone.jobid, 
-                       jobid_2: p2.jobid,  
-                       len_1: p1_clone.len,
-                       len_2: p2.len,
-                       sim_abs: sim_abs,
-                       sim_abs_aggzeros: sim_abs_aggzeros, 
-                       sim_hex: sim_hex, 
-                       sim_phases: sim_phases, 
-                   };
-                   rows.push(row);
-               }
-           }
-           tx_clone.send(rows).unwrap(); 
-       });
-       counter += 1;
+                for threshold_sim in threshold_sims.iter() {
+                    if sim_abs > threshold_sim.into_inner() {
+                        let row = JobComparison{
+                            jobid_1: p1_clone.jobid,
+                            jobid_2: p2.jobid,
+                            alg_type: ALG::Abs,
+                            sim: sim_abs,
+                            threshold_sim: *threshold_sim,
+                        };
+                        rows.push(row);
+                    }
+                    if sim_hex > threshold_sim.into_inner() {
+                        let row = JobComparison{
+                            jobid_1: p1_clone.jobid,
+                            jobid_2: p2.jobid,
+                            alg_type: ALG::Hex,
+                            sim: sim_hex,
+                            threshold_sim: *threshold_sim,
+                        };
+                        rows.push(row);
+                    }
+                    if sim_abs_aggzeros > threshold_sim.into_inner() {
+                        let row = JobComparison{
+                            jobid_1: p1_clone.jobid,
+                            jobid_2: p2.jobid,
+                            alg_type: ALG::AbsAggzeros,
+                            sim: sim_abs_aggzeros,
+                            threshold_sim: *threshold_sim,
+                        };
+                        rows.push(row);
+                    }
+                    if sim_phases > threshold_sim.into_inner() {
+                        let row = JobComparison{
+                            jobid_1: p1_clone.jobid,
+                            jobid_2: p2.jobid,
+                            alg_type: ALG::Phases,
+                            sim: sim_phases,
+                            threshold_sim: *threshold_sim,
+                        };
+                        rows.push(row);
+                    }
+                }
+            }
+            tx_clone.send(rows).unwrap(); 
+        });
+        counter += 1;
     }
 
-   
-    let file = File::create(&cfg.output_fn).expect("Unable to open");
-    let mut wtr = csv::Writer::from_writer(&file);
+    let mut groups: HashMap<u32, HashMap<ALG, HashMap<OrderedFloat<f32>, Summary>>> = HashMap::new();
+    let start_group = chrono::Utc::now();
 
-    let start = chrono::Utc::now();
-    //let mut batch_counter = 0;
+    for phase in phases_set.iter() {
+        groups.entry(phase.jobid).or_insert(HashMap::new()).entry(ALG::Abs).or_insert(HashMap::new());
+        groups.entry(phase.jobid).or_insert(HashMap::new()).entry(ALG::AbsAggzeros).or_insert(HashMap::new());
+        groups.entry(phase.jobid).or_insert(HashMap::new()).entry(ALG::Hex).or_insert(HashMap::new());
+        groups.entry(phase.jobid).or_insert(HashMap::new()).entry(ALG::Phases).or_insert(HashMap::new());
+    }
 
     let mut rx_iter = rx.iter();
+    let mut start = chrono::Utc::now();
     for i in 0..n_jobs {
         let rows = rx_iter.next().unwrap();
         for row in rows {
-            wtr.serialize(row)?;
+            groups.get_mut(&row.jobid_2).unwrap().get_mut(&row.alg_type).unwrap().entry(row.threshold_sim).or_insert(
+               Summary{
+                   cluster: row.jobid_1,
+                   sim: row.sim,
+               });
         }
-        println!("batch {}/{} ({:.3}%)", 
-                 i, 
-                 n_jobs, 
-                 ((100 * i) as f32) / (n_jobs as f32)
-                );
+        if ((i + 1) % 1000) == 0 {
+            let stop = chrono::Utc::now();
+            println!("batch {}/{} ({:.3}%), ({:.3} seconds)", 
+                     i + 1, 
+                     n_jobs, 
+                     ((100 * (i + 1)) as f32) / (n_jobs as f32),
+                     ((stop - start).num_milliseconds() as f64) / (1000 as f64)
+                    );
+            start = stop;
+        }
+    }
+    let stop_group = chrono::Utc::now();
+    println!("Finished grouping {}", ((stop_group - start_group).num_milliseconds() as f64) / (1000 as f64));
+
+
+    let mut alg_map: HashMap<ALG, u32> = HashMap::new();
+    alg_map.insert(ALG::Abs, 1);
+    alg_map.insert(ALG::AbsAggzeros, 2);
+    alg_map.insert(ALG::Hex, 3);
+    alg_map.insert(ALG::Phases, 4);
+
+    let start = chrono::Utc::now();
+    let output_rows = convert_to_output_rows(groups, &alg_map);
+    let stop = chrono::Utc::now();
+    println!("Conversion duration {}", ((stop - start).num_milliseconds() as f64) / (1000 as f64));
+
+
+    let file = File::create(&cfg.output_fn).expect("Unable to open");
+    let mut wtr = csv::Writer::from_writer(&file);
+    let start = chrono::Utc::now();
+    for output_row in output_rows {
+       wtr.serialize(output_row)?;
     }
 
-    let stop = chrono::Utc::now();
     println!("Flushing data.");
     wtr.flush()?;
+    let stop = chrono::Utc::now();
 
-    println!("Duration {}", ((stop - start).num_milliseconds() as f64) / (1000 as f64));
+    println!("Write duration {}", ((stop - start).num_milliseconds() as f64) / (1000 as f64));
     Ok(())
 }
 
@@ -207,7 +312,7 @@ mod tests {
     fn test_convert_to_coding() {
         let coding = String::from("256:256:0:0:38");
         let c = convert_to_coding(coding);
-        let expected_c: Vec<u16> = vec![256, 256, 0, 0, 38];
+        let expected_c: Vec<u32> = vec![256, 256, 0, 0, 38];
         assert_eq!(expected_c, c);
     }
 }

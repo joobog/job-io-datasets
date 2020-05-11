@@ -4,7 +4,7 @@ mod phase_combis_2;
 use phase_combis_2::PhaseNum;
 use phase_combis_2::PhaseLength;
 
-pub type CodingType = u16;
+pub type CodingType = u32;
 pub type SimType = f32;
 pub type QSum= f32;
 
