@@ -10,7 +10,8 @@ fn main() {
     let cfg = run::Config{
         dataset_fn: String::from("../../datasets/job_codings.csv"),
         output_fn: String::from("../../evaluation/job_codings_clusters.csv"),
-        nrows: 1_000_000,
+        //nrows: 1_000_000,
+        nrows: 100_000,
         //nrows: 30_000,
         n_workers: num_cpus::get(),
     };

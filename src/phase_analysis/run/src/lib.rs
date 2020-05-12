@@ -163,8 +163,9 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
     let mut counter = 0;
     let pool = ThreadPool::new(cfg.n_workers);
-    let channel_buf_size = 100;
+    let channel_buf_size = 2000;
     let (tx, rx) = sync_channel(channel_buf_size);
+    //let (tx, rx) = channel();
     let n_jobs = std::cmp::min(phases_set.len(), cfg.nrows);
 
 
