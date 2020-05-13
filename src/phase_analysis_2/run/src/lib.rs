@@ -43,14 +43,21 @@ pub struct Record {
     coding_abs_aggzeros: String,
 }
 
+
+#[derive(Debug, Clone, Copy)]
 pub struct Entity {
     pub jobid: u32,
     pub sim: f32,
 }
 
-
 struct Cluster {
-    pub centroid: u32,
+    pub centroid_jobid: u32,
+    pub entities: Vec<Entity>,
+}
+
+struct ClusterCentroid<T> {
+    pub centroid_jobid: u32,
+    pub centroid_coding: T,
     pub entities: Vec<Entity>,
 }
 
@@ -63,6 +70,12 @@ pub struct Profile<T> {
     pub func: fn(&T, &T) -> f32,
 }
 
+impl<T> std::fmt::Debug for Profile<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("").finish()
+    }
+}
+
 type Jobid = u32;
 type HexCoding = Vec<Vec<algorithm2::CodingType>>;
 type AbsCoding = Vec<algorithm2::CodingType>;
@@ -70,36 +83,13 @@ type AbsAggzerosCoding = Vec<algorithm2::CodingType>;
 type PhasesCoding= Vec<Vec<Vec<algorithm::CodingType>>>;
 
 //#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ALG {
     Phases(Profile<PhasesCoding>),
     Abs(Profile<AbsCoding>),
     AbsAggzeros(Profile<AbsAggzerosCoding>),
     Hex(Profile<HexCoding>),
 }
-
-
-
-
-//#[derive(Debug, Clone)]
-//struct IsolatedPhases {
-//    jobid: u32,
-//    coding_abs: Vec<u32>, 
-//    coding_abs_aggzeros: Vec<u32>, 
-//    coding_hex: Vec<Vec<u32>>,
-//    phases: Vec<Vec<Vec<u32>>>,
-//    len: u8,
-//}
-
-
-//#[derive()]
-//pub struct JobComparison {
-//    pub jobid_1: u32,
-//    pub jobid_2: u32,
-//    pub alg_type: ALG,
-//    pub sim: f32,
-//    pub threshold_sim: OrderedFloat<f32>,
-//}
 
 
 #[derive(Debug, Serialize)]
@@ -112,7 +102,6 @@ pub struct OutputRow {
 }
 
 
-
 pub fn convert_to_coding(coding: String) -> Vec<u32> {
     let split = coding.split(":");
     let vec: Vec<u32> = split
@@ -123,32 +112,45 @@ pub fn convert_to_coding(coding: String) -> Vec<u32> {
 }
 
 
+fn cluster<V> (cfg: &Config, alg: &ALG, min_sim: OrderedFloat<f32>, codings: &HashMap<Jobid,V>, cluster_func: fn(&V, &V) -> f32) -> Vec<Cluster> {
+    //println!("Grouping {:?}, ALG {:?}", min_sim, alg);
+    let start = chrono::Utc::now();
+    let mut clusters: Vec<ClusterCentroid<&V>> = Vec::new();
+    let mut avail_codings: Vec<(u32, &V)> = codings.iter().take(cfg.nrows).map(|(k, v)| (*k, v)).collect();
+    let mut found_cluster;
 
-fn cluster<V> (cfg: &Config, min_sim: OrderedFloat<f32>, codings: &HashMap<Jobid,V>, cluster_func: fn(&V, &V) -> f32) -> Vec<Cluster>
-{
-    let mut clusters: Vec<Cluster> = Vec::new();
-    let mut avail_codings: Vec<(u32, &V)> = codings.iter().take(cfg.nrows).map(|(k, v)| (*k, v.clone())).collect();
-    //println!("Grouping {:?}, Alg {:?}", min_sim, alg);
+
     while let Some((jobid, coding)) = avail_codings.pop() {
-       let mut cluster_sims = Vec::new();
-       for cluster in clusters.iter() {
-           let coding_1 = codings.get(&cluster.centroid).unwrap(); // get centroid
-           //cluster_sims.push(OrderedFloat(algorithm2::compute_similarity_1d(&coding_1, &coding)));
-           cluster_sims.push(OrderedFloat(cluster_func(&coding_1, &coding)));
-       }
-
-       if let Some(max) = cluster_sims.iter().max() {
-           if *max > min_sim {
-               if let Some(max_position) = cluster_sims.iter().position(|x| x == max) {
-                   clusters[max_position].entities.push(Entity{jobid: jobid, sim: max.into_inner()});
-                   continue;
-               }
-           }
-       }
-
-       let new_cluster = Cluster{centroid: jobid, entities: vec![Entity{jobid: jobid, sim: 1.0}]};
-       clusters.push(new_cluster);
+        found_cluster = false;
+        for cluster in clusters.iter_mut() {
+            let sim = cluster_func(&cluster.centroid_coding, &coding);
+            if sim >= min_sim.into_inner() {
+                // append to existing cluster
+                //println!("Add Entity, jobid = {}, sim = {}, left = {}", jobid, sim, avail_codings.len());
+                cluster.entities.push(Entity{jobid: jobid, sim: sim});
+                found_cluster = true;
+                break;
+            }
+        }
+        // create new cluster
+        if !found_cluster {
+            //println!("Add cluster jobid = {}, clusters = {}", jobid, clusters.len());
+            clusters.push(ClusterCentroid{
+                centroid_jobid: jobid, 
+                centroid_coding: coding, 
+                entities: vec![Entity{jobid: jobid, sim: 1.0}]
+            });
+        }
     }
+    // reshaping to common representation
+    let clusters: Vec<_> = clusters.iter().map(|x| Cluster{centroid_jobid: x.centroid_jobid, entities: x.entities.clone(),}).collect();
+    let stop = chrono::Utc::now();
+    println!("End Grouping {:?}, ALG {:?}, len {:?}, ({:.3} seconds)", 
+             min_sim,
+             alg,
+             clusters.len(),
+             ((stop - start).num_milliseconds() as f64) / (1000 as f64)
+            );
     clusters
 }
 
@@ -185,17 +187,17 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
     }
 
     let min_sims: Vec<OrderedFloat<f32>> = vec![
-        OrderedFloat(0.5), 
-        OrderedFloat(0.7),
-        OrderedFloat(0.9),
-        OrderedFloat(0.95),
-        OrderedFloat(0.99),
+        OrderedFloat(0.1), 
+        //OrderedFloat(0.7),
+        //OrderedFloat(0.9),
+        //OrderedFloat(0.95),
+        //OrderedFloat(0.99),
     ];
 
     let mut algs = Vec::new();
-    algs.push(ALG::Abs(Profile{name: String::from("abs"), id:1, dataset: abs_codings, func: algorithm2::compute_similarity_1d,}));
-    algs.push(ALG::AbsAggzeros(Profile{name: String::from("abs_aggzeros"), id:2, dataset: abs_aggzeros_codings, func: algorithm2::compute_similarity_1d,}));
-    algs.push(ALG::Hex(Profile{name: String::from("hex"), id:3, dataset: hex_codings, func: algorithm2::compute_similarity_2d,}));
+    //algs.push(ALG::Abs(Profile{name: String::from("abs"), id:1, dataset: abs_codings, func: algorithm2::compute_similarity_1d,}));
+    //algs.push(ALG::AbsAggzeros(Profile{name: String::from("abs_aggzeros"), id:2, dataset: abs_aggzeros_codings, func: algorithm2::compute_similarity_1d,}));
+    //algs.push(ALG::Hex(Profile{name: String::from("hex"), id:3, dataset: hex_codings, func: algorithm2::compute_similarity_2d,}));
     algs.push(ALG::Phases(Profile{name: String::from("phases"), id:4, dataset: phases_codings, func: algorithm::job_similarity_2d,}));
 
     let cfg = Arc::new(cfg);
@@ -215,7 +217,7 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     let codings = p.dataset.clone();
                     let tx = tx.clone();
                     pool.execute( move || {
-                        let clusters = cluster(&cfg, min_sim, &codings, p.func);
+                        let clusters = cluster(&cfg, &alg, min_sim, &codings, p.func);
                         tx.send((alg, min_sim, clusters)).unwrap();
                     });
                 }
@@ -225,7 +227,7 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     let codings = p.dataset.clone();
                     let tx = tx.clone();
                     pool.execute( move || {
-                        let clusters = cluster(&cfg, min_sim, &codings, p.func);
+                        let clusters = cluster(&cfg, &alg, min_sim, &codings, p.func);
                         tx.send((alg, min_sim, clusters)).unwrap();
                     });
                 }
@@ -235,7 +237,7 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     let codings = p.dataset.clone();
                     let tx = tx.clone();
                     pool.execute( move || {
-                        let clusters = cluster(&cfg, min_sim, &codings, p.func);
+                        let clusters = cluster(&cfg, &alg, min_sim, &codings, p.func);
                         tx.send((alg, min_sim, clusters)).unwrap();
                     });
                 }
@@ -246,8 +248,6 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
     let file = File::create(&cfg.output_fn).expect("Unable to open");
     let mut wtr = csv::Writer::from_writer(&file);
-    let start = chrono::Utc::now();
-
     let mut rx_iter = rx.iter();
 
     for _ in min_sims.iter() {
@@ -261,11 +261,11 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
             };
 
             for cluster in clusters.iter() {
-                let cluster_id = cluster.centroid;
+                let cluster_id = cluster.centroid_jobid;
                 for entity in cluster.entities.iter() {
                     let output_row = OutputRow {
                         jobid: entity.jobid,
-                        cluster:  cluster_id,
+                        cluster: cluster_id,
                         alg_type: alg_n,
                         sim: entity.sim,
                         threshold_sim: min_sim.into_inner(),
@@ -279,7 +279,6 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
     println!("Flushing data.");
     wtr.flush()?;
-    let stop = chrono::Utc::now();
     Ok(())
 }
 
