@@ -9,7 +9,7 @@ use algorithm;
 use std::sync::mpsc::channel;
 //use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
-//use std::sync::Mutex;
+use std::sync::Mutex;
 use std::error::Error;
 use std::fs::File;
 use serde::Deserialize;
@@ -22,6 +22,7 @@ use ordered_float::OrderedFloat;
 pub struct Config {
     pub dataset_fn: String,
     pub output_fn: String,
+    pub progress_fn: String,
     pub nrows: usize,
     pub n_workers: usize,
 }
@@ -41,6 +42,17 @@ pub struct Record {
     write_calls: String,
     coding_abs: String,
     coding_abs_aggzeros: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Progress {
+    min_sim: f32,
+    alg: u32,
+    nclusters: usize,
+    jobs_done: usize,
+    jobs_total: usize,
+    elapsed: f64,
+    delta: f64,
 }
 
 
@@ -112,21 +124,23 @@ pub fn convert_to_coding(coding: String) -> Vec<u32> {
 }
 
 
-fn cluster<V> (cfg: &Config, alg: &ALG, min_sim: OrderedFloat<f32>, codings: &HashMap<Jobid,V>, cluster_func: fn(&V, &V) -> f32) -> Vec<Cluster> {
+fn cluster<V, W> (cfg: &Config, wtr: Arc<Mutex<csv::Writer<W>>>,alg: &ALG, min_sim: OrderedFloat<f32>, codings: &HashMap<Jobid,V>, cluster_func: fn(&V, &V) -> f32) -> Vec<Cluster> 
+where W: std::io::Write
+{
     //println!("Grouping {:?}, ALG {:?}", min_sim, alg);
     let start = chrono::Utc::now();
     let mut clusters: Vec<ClusterCentroid<&V>> = Vec::new();
     let mut avail_codings: Vec<(u32, &V)> = codings.iter().take(cfg.nrows).map(|(k, v)| (*k, v)).collect();
     let mut found_cluster;
-
-
+    let mut counter = 0;
+    let mut start_loop = chrono::Utc::now();
     while let Some((jobid, coding)) = avail_codings.pop() {
         found_cluster = false;
+        //let nclusters = clusters.len();
         for cluster in clusters.iter_mut() {
             let sim = cluster_func(&cluster.centroid_coding, &coding);
             if sim >= min_sim.into_inner() {
                 // append to existing cluster
-                //println!("Add Entity, jobid = {}, sim = {}, left = {}", jobid, sim, avail_codings.len());
                 cluster.entities.push(Entity{jobid: jobid, sim: sim});
                 found_cluster = true;
                 break;
@@ -141,11 +155,48 @@ fn cluster<V> (cfg: &Config, alg: &ALG, min_sim: OrderedFloat<f32>, codings: &Ha
                 entities: vec![Entity{jobid: jobid, sim: 1.0}]
             });
         }
+        if (counter % 10_000) == 0 {
+            let stop_loop = chrono::Utc::now();
+            println!("{:?}, ALG {:?}, nclusters {:?}, left = {:?}/{:?}, ({:.3} seconds)", 
+                     min_sim,
+                     alg,
+                     clusters.len(),
+                     avail_codings.len(), 
+                     codings.len(),
+                     ((stop_loop - start_loop).num_milliseconds() as f64) / (1000 as f64)
+                    );
+
+            let alg_n = match alg {
+                ALG::Abs(p) => p.id,
+                ALG::AbsAggzeros(p)  => p.id,
+                ALG::Hex(p) => p.id,
+                ALG::Phases(p) => p.id
+            };
+
+            let progress = Progress{
+                min_sim: min_sim.into_inner(),
+                alg: alg_n,
+                nclusters: clusters.len(),
+                jobs_done: codings.len() - avail_codings.len(),
+                jobs_total: codings.len(),
+                elapsed: ((stop_loop - start).num_milliseconds() as f64) / (1000 as f64),
+                delta: ((stop_loop - start_loop).num_milliseconds() as f64) / (1000 as f64)
+            };
+
+            {
+                let mut wtr = wtr.lock().unwrap();
+                wtr.serialize(progress).unwrap();
+                wtr.flush().unwrap();
+            }
+
+            start_loop = stop_loop;
+        }
+        counter += 1;
     }
     // reshaping to common representation
     let clusters: Vec<_> = clusters.iter().map(|x| Cluster{centroid_jobid: x.centroid_jobid, entities: x.entities.clone(),}).collect();
     let stop = chrono::Utc::now();
-    println!("End Grouping {:?}, ALG {:?}, len {:?}, ({:.3} seconds)", 
+    println!("Finish grouping {:?}, ALG {:?}, nclusters {:?}, ({:.3} seconds)", 
              min_sim,
              alg,
              clusters.len(),
@@ -167,6 +218,8 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 
     for result in rdr.deserialize() {
         let record: Record = result.expect("bla bla");
+        let abs_aggzeros_coding = convert_to_coding(record.coding_abs_aggzeros);
+        let abs_coding = convert_to_coding(record.coding_abs);
         let hex_coding = vec![
 			convert_to_coding(record.md_file_create),
 			convert_to_coding(record.md_file_delete),
@@ -177,27 +230,36 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
 			convert_to_coding(record.read_calls),
 			convert_to_coding(record.write_bytes),
 			convert_to_coding(record.write_calls),];
+        let phases_coding = algorithm::detect_phases_2d(&hex_coding);
 
-        if hex_coding[0].len() > 0 {
-            abs_codings.insert(record.jobid, convert_to_coding(record.coding_abs));
-            abs_aggzeros_codings.insert(record.jobid, convert_to_coding(record.coding_abs_aggzeros));
-            phases_codings.insert(record.jobid, algorithm::detect_phases_2d(&hex_coding));
-            hex_codings.insert(record.jobid, hex_coding);
+        if abs_aggzeros_coding.iter().sum::<u32>() > 0 {
+            abs_aggzeros_codings.insert(record.jobid, abs_aggzeros_coding);
+        }
+        if abs_coding.iter().sum::<u32>() > 0 {
+            abs_codings.insert(record.jobid, abs_coding);
+        }
+        if phases_coding.iter().map(|x| x.len()).sum::<usize>() > 0 {
+            phases_codings.insert(record.jobid, phases_coding);
+        }
+        if hex_coding.iter().map(|x| x.iter().sum::<u32>()).sum::<u32>() > 0 {
+           hex_codings.insert(record.jobid, hex_coding);
         }
     }
 
     let min_sims: Vec<OrderedFloat<f32>> = vec![
         OrderedFloat(0.1), 
-        //OrderedFloat(0.7),
-        //OrderedFloat(0.9),
-        //OrderedFloat(0.95),
-        //OrderedFloat(0.99),
+        OrderedFloat(0.3), 
+        OrderedFloat(0.5), 
+        OrderedFloat(0.7),
+        OrderedFloat(0.9),
+        OrderedFloat(0.95),
+        OrderedFloat(0.99),
     ];
 
     let mut algs = Vec::new();
-    //algs.push(ALG::Abs(Profile{name: String::from("abs"), id:1, dataset: abs_codings, func: algorithm2::compute_similarity_1d,}));
-    //algs.push(ALG::AbsAggzeros(Profile{name: String::from("abs_aggzeros"), id:2, dataset: abs_aggzeros_codings, func: algorithm2::compute_similarity_1d,}));
-    //algs.push(ALG::Hex(Profile{name: String::from("hex"), id:3, dataset: hex_codings, func: algorithm2::compute_similarity_2d,}));
+    algs.push(ALG::Abs(Profile{name: String::from("abs"), id:1, dataset: abs_codings, func: algorithm2::compute_similarity_1d,}));
+    algs.push(ALG::AbsAggzeros(Profile{name: String::from("abs_aggzeros"), id:2, dataset: abs_aggzeros_codings, func: algorithm2::compute_similarity_1d,}));
+    algs.push(ALG::Hex(Profile{name: String::from("hex"), id:3, dataset: hex_codings, func: algorithm2::compute_similarity_2d,}));
     algs.push(ALG::Phases(Profile{name: String::from("phases"), id:4, dataset: phases_codings, func: algorithm::job_similarity_2d,}));
 
     let cfg = Arc::new(cfg);
@@ -206,9 +268,14 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
     //let channel_buf_size = 2000;
     //let (tx, rx) = sync_channel(channel_buf_size);
     let (tx, rx) = channel();
+    let file = File::create(&cfg.progress_fn).expect("Unable to open progress file");
+    let wtr = csv::Writer::from_writer(file);
+    let wtr = Arc::new(Mutex::new(wtr));
 
     for main_min_sim in min_sims.iter() {
         let min_sim = *main_min_sim;
+        let wtr = wtr.clone();
+
         for main_alg in algs.iter() {
             match main_alg.clone() {
                 ALG::Abs(p) | ALG::AbsAggzeros(p)  => {
@@ -216,8 +283,9 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     let cfg = cfg.clone();
                     let codings = p.dataset.clone();
                     let tx = tx.clone();
+                    let wtr = wtr.clone();
                     pool.execute( move || {
-                        let clusters = cluster(&cfg, &alg, min_sim, &codings, p.func);
+                        let clusters = cluster(&cfg, wtr, &alg, min_sim, &codings, p.func);
                         tx.send((alg, min_sim, clusters)).unwrap();
                     });
                 }
@@ -226,8 +294,9 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     let cfg = cfg.clone();
                     let codings = p.dataset.clone();
                     let tx = tx.clone();
+                    let wtr = wtr.clone();
                     pool.execute( move || {
-                        let clusters = cluster(&cfg, &alg, min_sim, &codings, p.func);
+                        let clusters = cluster(&cfg, wtr, &alg, min_sim, &codings, p.func);
                         tx.send((alg, min_sim, clusters)).unwrap();
                     });
                 }
@@ -236,13 +305,15 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     let cfg = cfg.clone();
                     let codings = p.dataset.clone();
                     let tx = tx.clone();
+                    let wtr = wtr.clone();
                     pool.execute( move || {
-                        let clusters = cluster(&cfg, &alg, min_sim, &codings, p.func);
+                        let clusters = cluster(&cfg, wtr, &alg, min_sim, &codings, p.func);
                         tx.send((alg, min_sim, clusters)).unwrap();
                     });
                 }
             };
         }
+        wtr.lock().unwrap().flush().unwrap();
     }
 
 
@@ -274,24 +345,8 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
                     wtr.serialize(output_row)?;
                 }
             }
+            wtr.flush()?;
         }
     }
-
-    println!("Flushing data.");
-    wtr.flush()?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_convert_to_coding() {
-        let coding = String::from("256:256:0:0:38");
-        let c = convert_to_coding(coding);
-        let expected_c: Vec<u32> = vec![256, 256, 0, 0, 38];
-        assert_eq!(expected_c, c);
-    }
-}
-

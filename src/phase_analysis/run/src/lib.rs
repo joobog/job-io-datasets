@@ -185,14 +185,23 @@ pub fn run(cfg: Config) -> Result<(), Box<dyn Error>> {
         pool.execute( move || {
             let mut rows: Vec<JobComparison> = Vec::new();
             for p2 in phases_set2_clone.iter().take(n_jobs).skip(counter) {
-                let sim_abs = algorithm2::compute_similarity_1d(&p1_clone.coding_abs, &p2.coding_abs);
-                let sim_abs_aggzeros = algorithm2::compute_similarity_1d(&p1_clone.coding_abs_aggzeros, &p2.coding_abs_aggzeros);
-                let sim_hex = algorithm2::compute_similarity_2d(&p1_clone.coding_hex, &p2.coding_hex);
-                let sim_phases = algorithm::job_similarity_2d(&p1_clone.phases, &p2.phases);
-                //let sim_abs = 0.0;
-                //let sim_abs_aggzeros = 0.0; 
-                //let sim_hex = 0.0; 
-                //let sim_phases = 0.0;
+                let sim_abs;
+                let sim_abs_aggzeros;
+                let sim_hex;
+                let sim_phases;
+
+                if p1_clone.jobid == p2.jobid {
+                    sim_abs = 1.0;
+                    sim_abs_aggzeros = 1.0; 
+                    sim_hex = 1.0; 
+                    sim_phases = 1.0;
+                }
+                else {
+                    sim_abs = algorithm2::compute_similarity_1d(&p1_clone.coding_abs, &p2.coding_abs);
+                    sim_abs_aggzeros = algorithm2::compute_similarity_1d(&p1_clone.coding_abs_aggzeros, &p2.coding_abs_aggzeros);
+                    sim_hex = algorithm2::compute_similarity_2d(&p1_clone.coding_hex, &p2.coding_hex);
+                    sim_phases = algorithm::job_similarity_2d(&p1_clone.phases, &p2.phases);
+                }
 
                 for threshold_sim in threshold_sims.iter() {
                     if sim_abs > threshold_sim.into_inner() {
