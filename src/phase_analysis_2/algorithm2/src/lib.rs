@@ -1,4 +1,7 @@
 extern crate generic_levenshtein;
+extern crate ordered_float;
+
+use ordered_float::OrderedFloat;
 
 pub type CodingType = u32;
 pub type SimType = f32;
@@ -11,11 +14,63 @@ pub fn compute_similarity_1d(coding_1: &Vec<CodingType>, coding_2: &Vec<CodingTy
 }
 
 
+pub fn compute_similarity_sliding_windows_1d(coding_1: &Vec<CodingType>, coding_2: &Vec<CodingType>) -> SimType {
+    let c1;
+    let c2;
+
+    // c1 is always larger or equal compared to c2
+    if coding_1.len() < coding_2.len() {
+        c1 = coding_1;
+        c2 = coding_2;
+    }
+    else {
+        c2 = coding_1;
+        c1 = coding_2;
+    }
+
+    let l1 = c1.len();
+    let l2 = c2.len();
+
+    let sim:OrderedFloat<f32> = (0..(l2-l1+1))
+        .map(|x| {
+            let idx1 = x;
+            let idx2 = l1 + idx1;
+            let sum: f32 = c1.iter().zip(&c2[idx1..idx2]).map(
+                |(a, b)|  {
+                    let diff = if b>a {b-a} else {a-b};
+                    ((16 - diff) as f32) * 0.0625
+                }
+                ).sum();
+            OrderedFloat(sum)
+        })
+        .max()
+        .unwrap();
+    sim.into_inner() / (c2.len() as f32)
+}
+
+
 pub fn compute_similarity_2d(coding_1: &Vec<Vec<CodingType>>, coding_2: &Vec<Vec<CodingType>>) -> SimType {
-    let sim_sum = coding_1.iter().zip(coding_2.iter())
-        .map(|(mc_1, mc_2)| { compute_similarity_1d(&mc_1, &mc_2) })
-        .sum::<SimType>();
-    let n_metrics = coding_1.len(); 
+    // Find segments with that contain only zeros
+    let z: Vec<u32> = coding_1.iter().zip(coding_2)
+        .map(|(mc_1, mc_2)| 
+            {
+                if (mc_1.iter().sum::<u32>() + mc_2.iter().sum::<u32>()) > 0 {1} else {0}
+            })
+        .collect();
+    let n_metrics: u32 = z.iter().sum();
+
+    let sim_sum = coding_1.iter().zip(coding_2).zip(z)
+       //.map(|(mc_1, mc_2)| { compute_similarity_1d(&mc_1, &mc_2) })
+       .map(|((mc_1, mc_2), cz)| 
+            {
+                if cz != 0 {
+                    compute_similarity_sliding_windows_1d(&mc_1, &mc_2)
+                } 
+                else {
+                    0.0
+                } 
+            })
+       .sum::<SimType>();
     sim_sum /(n_metrics as SimType)
 }
 
@@ -37,6 +92,17 @@ mod tests {
         let c1 = vec![1, 2, 3, 4];
         let c2 = vec![1, 2, 3, 4, 5];
         assert_approx_eq!(compute_similarity_1d(&c1, &c2), 0.8, 0.001);
+    }
+
+    #[test]
+    fn test_compute_similarity_sliding_windows_1d() {
+        let c1: Vec<CodingType> = vec![0, 8, 16, 9, 1, 8, 0, 0];
+        let c2: Vec<CodingType> = vec![7, 16, 5, 0, 9];
+        assert_approx_eq!(compute_similarity_sliding_windows_1d(&c1, &c2), 0.5703125, 0.001);
+
+        let c1: Vec<CodingType> = vec![0, 8, 16, 9, 1, 8, 0, 0];
+        let c2: Vec<CodingType> = vec![0, 8, 16, 9, 1, 8, 0, 0];
+        assert_approx_eq!(compute_similarity_sliding_windows_1d(&c1, &c2), 1.0, 0.001);
     }
 
     #[test]

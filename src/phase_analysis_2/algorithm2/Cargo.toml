@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 generic_levenshtein = "*"
 assert_approx_eq = "*"
+ordered-float = "1.0"
