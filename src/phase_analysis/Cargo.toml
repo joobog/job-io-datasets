@@ -1,7 +1,0 @@
-[workspace]
-
-members = [
-    "algorithm",
-    "algorithm2",
-    "run",
-]
