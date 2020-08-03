@@ -203,11 +203,11 @@ pub fn detect_phases_1d(data: &Vec<CodingType>) -> Vec<Vec<CodingType>> {
 	let mut phases: Vec<(usize, usize)> = Vec::new();
 	let mut idx = 0;
 	while idx < data_length {
-		while (idx < data_length) && (data[idx] == 0) {
+		while (idx < data_length) && (data[idx] == (0 as CodingType)) {
 			idx = idx + 1;
 		}
 		let start = idx;
-		while (idx < data_length) && (data[idx] != 0) {
+		while (idx < data_length) && (data[idx] != (0 as CodingType)) {
 			idx = idx + 1;
 		}
 		let stop = idx;
@@ -271,8 +271,8 @@ mod tests {
     #[test]
     fn test_sum_quotients() {
         // 0.5 + 1 + 1 + 1 = 3.5
-        let coding_1 = vec![1, 1, 1, 1];
-        let coding_2 = vec![2, 1, 1, 1];
+        let coding_1 = vec![1.0, 1.0, 1.0, 1.0];
+        let coding_2 = vec![2.0, 1.0, 1.0, 1.0];
         assert_eq!(sum_quotients(&coding_1, &coding_2), 3.5);
     }
 
@@ -281,38 +281,38 @@ mod tests {
         //let coding_1 = vec![2, 2, 9, 3];
         //let coding_2 = vec![2, 2, 2, 2, 8, 2];
 
-        let coding_1 = vec![2, 2, 9, 3];
-        let coding_2 = vec![2, 2, 2, 2];
+        let coding_1 = vec![2.0, 2.0, 9.0, 3.0];
+        let coding_2 = vec![2.0, 2.0, 2.0, 2.0];
         assert_approx_eq!(sum_quotients(&coding_1, &coding_2), 2.889, 0.001);
-        let coding_1 = vec![2, 2, 9, 3];
-        let coding_2 = vec![2, 2, 2, 8];
+        let coding_1 = vec![2.0, 2.0, 9.0, 3.0];
+        let coding_2 = vec![2.0, 2.0, 2.0, 8.0];
         assert_approx_eq!(sum_quotients(&coding_1, &coding_2), 2.597, 0.001);
-        let coding_1 = vec![2, 2, 9, 3];
-        let coding_2 = vec![2, 2, 8, 2];
+        let coding_1 = vec![2.0, 2.0, 9.0, 3.0];
+        let coding_2 = vec![2.0, 2.0, 8.0, 2.0];
         assert_approx_eq!(sum_quotients(&coding_1, &coding_2), 3.556, 0.001);
 
         // 2/2 + 2/2 + 8/9 + 2/3 = 3.5555556
-        let coding_1 = vec![2, 2, 9, 3];
-        let coding_2 = vec![2, 2, 2, 2, 8, 2];
+        let coding_1 = vec![2.0, 2.0, 9.0, 3.0];
+        let coding_2 = vec![2.0, 2.0, 2.0, 2.0, 8.0, 2.0];
         let (qsum, len) = get_best_phase_match(&coding_1, &coding_2);
         assert_approx_eq!(qsum, 3.556, 0.001);
         assert_eq!(len, 6);
 
-        let coding_1 = vec![8];
-        let coding_2 = vec![8];
+        let coding_1 = vec![8.0];
+        let coding_2 = vec![8.0];
         assert_approx_eq!(sum_quotients(&coding_1, &coding_2), 1.0, 0.001);
 
-        let coding_1 = vec![32,175,128,128];
-        let coding_2 = vec![32,175,128,128];
+        let coding_1 = vec![32.0,175.0,128.0,128.0];
+        let coding_2 = vec![32.0,175.0,128.0,128.0];
         assert_approx_eq!(sum_quotients(&coding_1, &coding_2), 4.0, 0.001);
 
-        let coding_1 = vec![8];
-        let coding_2 = vec![8];
+        let coding_1 = vec![8.0];
+        let coding_2 = vec![8.0];
         let (sim, len) = get_best_phase_match(&coding_1, &coding_2);
         assert_approx_eq!(sim, 1.0/(len as SimType), 0.001);
 
-        let coding_1 = vec![32,175,128,128];
-        let coding_2 = vec![32,175,128,128];
+        let coding_1 = vec![32.0,175.0,128.0,128.0];
+        let coding_2 = vec![32.0,175.0,128.0,128.0];
         let (qsum, len) = get_best_phase_match(&coding_1, &coding_2);
         assert_approx_eq!(qsum, 4.0, 0.001);
         assert_eq!(len, 4);
@@ -333,11 +333,11 @@ mod tests {
 
     #[test]
     fn test_get_job_qsums_1d() {
-        let job_coding_1: Vec<Vec<CodingType>> = vec![vec![8],vec![8],vec![32,175,128,128]];
-        let job_coding_2: Vec<Vec<CodingType>> = vec![vec![8],vec![8],vec![32,175,128,128]];
+        let job_coding_1: Vec<Vec<CodingType>> = vec![vec![8.0],vec![8.0],vec![32.0,175.0,128.0,128.0]];
+        let job_coding_2: Vec<Vec<CodingType>> = vec![vec![8.0],vec![8.0],vec![32.0,175.0,128.0,128.0]];
         assert_eq!(get_job_qsums_1d(&job_coding_1, &job_coding_2), [(1.0,1), (1.0,1), (4.0, 4)]);
-        let job_coding_1: Vec<Vec<CodingType>> = vec![vec![8]];
-        let job_coding_2: Vec<Vec<CodingType>> = vec![vec![8],vec![4],vec![32,175,128,128]];
+        let job_coding_1: Vec<Vec<CodingType>> = vec![vec![8.0]];
+        let job_coding_2: Vec<Vec<CodingType>> = vec![vec![8.0],vec![4.0],vec![32.0,175.0,128.0,128.0]];
         assert_eq!(get_job_qsums_1d(&job_coding_1, &job_coding_2), [(1.0,1), (0.0,1), (0.0, 4)]);
 
 
@@ -348,22 +348,22 @@ mod tests {
     fn test_get_job_similarity_2d() {
         let job_coding_1: Vec<Vec<Vec<CodingType>>> = vec![
             vec![],
-            vec![vec![1]],
+            vec![vec![1.0]],
             vec![],
-            vec![vec![4], vec![4], vec![1]],
+            vec![vec![4.0], vec![4.0], vec![1.0]],
             vec![],
-            vec![vec![1]],
-            vec![vec![1]],
+            vec![vec![1.0]],
+            vec![vec![1.0]],
             vec![],
             vec![],
         ];
 
         let job_coding_2: Vec<Vec<Vec<CodingType>>> = vec![
             vec![],
-            vec![vec![1]],
-            vec![vec![1]],
+            vec![vec![1.0]],
+            vec![vec![1.0]],
             vec![],
-            vec![vec![1]],
+            vec![vec![1.0]],
             vec![],
             vec![],
             vec![],
@@ -388,12 +388,12 @@ mod tests {
        */
 
         let job_coding_1: Vec<Vec<Vec<CodingType>>> = vec![
-            vec![vec![2, 2, 9, 3], vec![1]],
-            vec![vec![2, 2, 9, 3], vec![9, 1, 1]],
+            vec![vec![2.0, 2.0, 9.0, 3.0], vec![1.0]],
+            vec![vec![2.0, 2.0, 9.0, 3.0], vec![9.0, 1.0, 1.0]],
         ];
         let job_coding_2: Vec<Vec<Vec<CodingType>>> = vec![
-            vec![vec![2]],
-            vec![vec![2, 2, 2, 2, 8, 2], vec![1], vec![8, 1, 1]],
+            vec![vec![2.0]],
+            vec![vec![2.0, 2.0, 2.0, 2.0, 8.0, 2.0], vec![1.0], vec![8.0, 1.0, 1.0]],
         ];
         //println!("job similarity {:?}", job_similarity_2d(&job_coding_1, &job_coding_2));
         assert_approx_eq!(job_similarity_2d(&job_coding_1, &job_coding_2), 0.4962, 0.001);
@@ -421,13 +421,13 @@ mod tests {
         */
         
         let job_coding_1 = vec![
-            vec![vec![2,2,2,9,3], vec![9,1,1,1]],
-            vec![vec![9,3], vec![1]],
+            vec![vec![2.0,2.0,2.0,9.0,3.0], vec![9.0,1.0,1.0,1.0]],
+            vec![vec![9.0,3.0], vec![1.0]],
             ];
 
         let job_coding_2  = vec![
-            vec![vec![1]],
-            vec![vec![2,2,2,2,8,2,2], vec![1], vec![8,1,1]]
+            vec![vec![1.0]],
+            vec![vec![2.0,2.0,2.0,2.0,8.0,2.0,2.0], vec![1.0], vec![8.0,1.0,1.0]]
         ];
 
         assert_approx_eq!(job_similarity_2d(&job_coding_1, &job_coding_2), 0.1775, 0.001);
@@ -435,12 +435,12 @@ mod tests {
 
     #[test]
     fn test_detect_phases_1d() {
-        let coding: Vec<CodingType> = vec![2, 2, 2, 2, 8, 2, 0, 0, 0, 1, 0, 8, 1, 1, 0];
+        let coding: Vec<CodingType> = vec![2.0, 2.0, 2.0, 2.0, 8.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 8.0, 1.0, 1.0, 0.0];
         let res_phases = detect_phases_1d(&coding);
-        let expected_phases: Vec<Vec<CodingType>> = vec![vec![2, 2, 2, 2, 8, 2], vec![1], vec![8, 1, 1]];
+        let expected_phases: Vec<Vec<CodingType>> = vec![vec![2.0, 2.0, 2.0, 2.0, 8.0, 2.0], vec![1.0], vec![8.0, 1.0, 1.0]];
         assert_eq!(res_phases, expected_phases);
 
-        let coding: Vec<CodingType> = vec![0, 0, 0, 0, 0];
+        let coding: Vec<CodingType> = vec![0.0, 0.0, 0.0, 0.0, 0.0];
         let res_phases = detect_phases_1d(&coding);
         let expected_phases: Vec<Vec<CodingType>> = vec![];
         assert_eq!(res_phases, expected_phases);
@@ -450,25 +450,25 @@ mod tests {
     #[test]
     fn test_detect_phases_2d() {
         let coding = vec![
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 4, 0, 4, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 4.0, 0.0, 4.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 
         ];
 
         let expected_phases: Vec<Vec<Vec<CodingType>>> = vec![
             vec![],
-            vec![vec![1]],
+            vec![vec![1.0]],
             vec![],
-            vec![vec![4], vec![4], vec![1]],
+            vec![vec![4.0], vec![4.0], vec![1.0]],
             vec![],
-            vec![vec![1]],
-            vec![vec![1]],
+            vec![vec![1.0]],
+            vec![vec![1.0]],
             vec![],
             vec![],
         ];

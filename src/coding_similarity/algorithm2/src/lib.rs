@@ -31,25 +31,25 @@ pub fn compute_similarity_sliding_windows_1d(coding_1: &Vec<CodingType>, coding_
     let l1 = c1.len();
     let l2 = c2.len();
 
-    let sim:OrderedFloat<f32> = (0..(l2-l1+1))
+    let sim:OrderedFloat<f32> = (0..(l2-l1+1)) // (0..1) -> [0], (0..2) -> [0, 1], ...
         .map(|x| {
             let idx1 = x;
             let idx2 = l1 + idx1;
-            let sum: f32 = c1.iter().zip(&c2[idx1..idx2]).map(
+            let sum: f32 = c1.iter().zip(&c2[idx1..idx2]).map( // sum_{i=1}^{LA}
                 |(a, b)|  {
                     let diff = if b>a {b-a} else {a-b};
-                    ((16 - diff) as f32) * 0.0625
+                    ((16 - diff) as f32) * 0.0625 // 1 - Normalized-Difference
                 }
                 ).sum();
             OrderedFloat(sum)
         })
         .max()
         .unwrap();
-    sim.into_inner() / (c2.len() as f32)
+    sim.into_inner() / (c2.len() as f32)  // sum / LB
 }
 
 
-pub fn compute_similarity_2d(coding_1: &Vec<Vec<CodingType>>, coding_2: &Vec<Vec<CodingType>>) -> SimType {
+pub fn compute_similarity_levenshtein_2d(coding_1: &Vec<Vec<CodingType>>, coding_2: &Vec<Vec<CodingType>>) -> SimType {
     // Find segments with that contain only zeros
     let z: Vec<u32> = coding_1.iter().zip(coding_2)
         .map(|(mc_1, mc_2)| 
@@ -60,10 +60,31 @@ pub fn compute_similarity_2d(coding_1: &Vec<Vec<CodingType>>, coding_2: &Vec<Vec
     let n_metrics: u32 = z.iter().sum();
 
     let sim_sum = coding_1.iter().zip(coding_2).zip(z)
-       //.map(|(mc_1, mc_2)| { compute_similarity_1d(&mc_1, &mc_2) })
-       .map(|((mc_1, mc_2), cz)| 
+       .map(|((mc_1, mc_2), cz)| { compute_similarity_1d(&mc_1, &mc_2) })
+       .sum::<SimType>();
+    sim_sum /(n_metrics as SimType)
+}
+
+
+pub fn compute_similarity_2d(coding_1: &Vec<Vec<CodingType>>, coding_2: &Vec<Vec<CodingType>>) -> SimType {
+    // Find segments that contain only zeros
+    // mc_1, mc_2 : metric codings
+    // z: binary vector indicates I/O intensive metrics: 1 -> I/O intensive, 0-> I/O non-intensive
+    // n_metrics: number of I/O intesive metrics
+    let z: Vec<u32> = coding_1.iter().zip(coding_2)
+        .map(|(mc_1, mc_2)| 
             {
-                if cz != 0 {
+                if (mc_1.iter().sum::<u32>() + mc_2.iter().sum::<u32>()) > 0 {1} else {0}
+            })
+        .collect();
+    let n_metrics: u32 = z.iter().sum();
+
+    // Tupel ((coding1, coding2), areZeroCodings)
+    // are_zero_codings is just for optimization
+    let sim_sum = coding_1.iter().zip(coding_2).zip(z)
+       .map(|((mc_1, mc_2), are_zero_codings)| 
+            {
+                if are_zero_codings != 0 {
                     compute_similarity_sliding_windows_1d(&mc_1, &mc_2)
                 } 
                 else {
