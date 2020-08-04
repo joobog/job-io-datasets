@@ -36,9 +36,9 @@ Datasets with more than 1.000.000 job I/O samples.
 ## Datasets
 
 ### job_metadata.csv
-This dataset contains anonymized job data.
-It can be joined by "jobid"-field with other dataset to obtain additional job information.
+Anonymized job data
 
+Hexadecimal and binary codings
 ### job_codings.csv
 #### Binary coding 
 Binary coding Binary coding represents monitoring data as a sequence of numbers, where each number represents the overall file system usage. 
@@ -96,3 +96,8 @@ runtime.
 • Job-I/O-Utilization: shows the average I/O load during I/O-phases.
 • Job-I/O-Problem-Time is the fraction of job runtime that is I/O-intensive; it is
 approximated by the fractions of segments that are considered I/O intensive.
+
+
+## Evaluation (WIP)
+The Run-Script src/run.sh contains clusters the profile and codings datasets and stores the result in ./evaluation folder.
+Please consult the script for further details.
