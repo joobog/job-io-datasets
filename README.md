@@ -14,7 +14,7 @@ The other dimensions may be fixed for particular HPC systems, but we assumed the
 Actually, on Mistral data is gathered every five seconds, for two Lustre file system, and for nine I/O metrics. 
 Five of them (md read, md mod, md file create, md file delete, md other) capture metadata activities and the remaining four (read bytes, read calls, write bytes, write calls) capture data access.
 
-![Data structure](assets/path/data_structure.png?raw=true "Data structure")
+![Data structure](assets/data_structure.png?raw=true "Data structure")
 
 ## Segmentation
 
