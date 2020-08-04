@@ -36,9 +36,9 @@ Datasets with more than 1.000.000 job I/O samples.
 ## Datasets
 
 ### job_metadata.csv
-Anonymized job data
+This dataset contains anonymized job data.
+It can be joined by "jobid"-field with other dataset to obtain additional job information.
 
-Hexadecimal and binary codings
 ### job_codings.csv
 #### Binary coding 
 Binary coding Binary coding represents monitoring data as a sequence of numbers, where each number represents the overall file system usage. 
